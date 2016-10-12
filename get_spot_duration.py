@@ -1,4 +1,6 @@
-#!/usr/bin/env python2.7
+#!/usr/local/Cellar/python3/3.5.1/bin/python3
+# /usr/bin/env python3
+
 # Copyright 2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Amazon Software License (the "License"). You may not use this file except in compliance with the
@@ -11,9 +13,9 @@
 # limitations under the License.
 #
 # ---------------------------------------------------------------------------------------------------------------------
-# get_spot_duration.py uses AWS CLI tools to obtain price history for the last week (by default), 
+# get_spot_duration.py uses AWS CLI tools to obtain price history for the last week (by default),
 # and prints time duration since the last time Spot price exceeded the bid price.
-# 
+#
 # We use CLI for simplicity and demonstration purposes. For production code please use SDK/boto3
 # Input: product-description, region, and combination of instance types and Spot bids prices for each instance type.
 # Example:
@@ -29,6 +31,9 @@ import sys
 import datetime
 import time
 from subprocess import Popen, PIPE
+from multiprocessing import Pool
+
+import itertools
 
 # Call AWS CLI and obtain JSON output, we could've also used tabular or text, but json is easier to parse.
 def make_call(cmdline, profile):
@@ -52,6 +57,7 @@ def get_last_spot_price_exceeding_the_bid(profile, hours, inst_type, region, pro
     start_time = now - datetime.timedelta(hours=hours)
     start_time_unix = calendar.timegm(start_time.utctimetuple())
 
+    last_times = {}
     #: :type: list of SpotPriceHistory
     res = make_call(["ec2", "--region", region,
                      "describe-spot-price-history",
@@ -60,7 +66,7 @@ def get_last_spot_price_exceeding_the_bid(profile, hours, inst_type, region, pro
                      "--instance-types", inst_type,
                      "--product-descriptions", product], profile)
 
-    last_times = {}
+
     for p in res['SpotPriceHistory']:
         cur_ts = iso_to_unix_time(p['Timestamp'])
         cur_az = p['AvailabilityZone']
@@ -71,7 +77,7 @@ def get_last_spot_price_exceeding_the_bid(profile, hours, inst_type, region, pro
 
         if float(p['SpotPrice']) > bid and cur_ts > old_ts:
             last_times[(inst_type, cur_az)] = cur_ts
-
+    #print last_times
     return last_times
 
 
@@ -117,8 +123,18 @@ for it in args.list_of_spot_bids.split(","):
         sys.exit(1)
 
 result = {}
-for it, bid in types.items():
-    result.update(get_last_spot_price_exceeding_the_bid(args.profile, args.hours, it, args.region, args.product, bid))
+regions = list()
+
+if args.region=="all":
+    regions = ["ap-south-1","eu-west-1","ap-southeast-1","ap-southeast-2","eu-central-1","ap-northeast-2",
+          "ap-northeast-1","us-east-1","sa-east-1","us-west-1","us-west-2"]
+else:
+    regions = [args.region]
+
+
+for region in regions:
+    for it, bid in types.items():
+        result.update(get_last_spot_price_exceeding_the_bid(args.profile, args.hours, it, region, args.product, bid))
 
 unix_now = time.time()
 
